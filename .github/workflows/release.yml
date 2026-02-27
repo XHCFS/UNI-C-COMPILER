@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build Release (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: ccompiler-linux-x86_64
+            binary_path: build/bin/ccompiler
+          - os: windows-latest
+            artifact_name: ccompiler-windows-x86_64
+            binary_path: build/Release/ccompiler.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+
+      - name: Configure CMake (Release)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Run tests before packaging
+        working-directory: build
+        run: ctest --output-on-failure -C Release
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp build/bin/ccompiler dist/ccompiler
+          cp README.md dist/ 2>/dev/null || true
+          tar -czf ${{ matrix.artifact_name }}.tar.gz -C dist .
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist
+          copy build\Release\ccompiler.exe dist\ccompiler.exe
+          Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact_name }}.zip
+        shell: pwsh
+
+      - name: Upload release asset (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.tar.gz
+
+      - name: Upload release asset (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.zip
+
+  create-github-release:
+    name: Create GitHub Release
+    needs: build-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          body: |
+            ## CIE 461 Compiler — ${{ github.ref_name }}
+
+            Automated release built from tag `${{ github.ref_name }}`.
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | Linux x86_64  | `ccompiler-linux-x86_64.tar.gz`   |
+            | Windows x86_64| `ccompiler-windows-x86_64.zip`    |
+
+            ### Changelog
+            See commit history for changes since the previous release.
+          files: release-assets/**/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
