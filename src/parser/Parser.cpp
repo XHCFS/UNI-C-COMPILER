@@ -62,9 +62,8 @@ std::unique_ptr<ParseNode> Parser::parseProgram() {
 }
 
 std::unique_ptr<ParseNode> Parser::parseDecl() {
-    // TODO: implement full declaration parsing
-    auto node = std::make_unique<ParseNode>("decl");
-    return node;
+    if (!check(TokenType::END_OF_FILE)) ++pos_;
+    return std::make_unique<ParseNode>("decl");
 }
 
 std::unique_ptr<ParseNode> Parser::parseVarDecl(const std::string&, const std::string&, int) {
