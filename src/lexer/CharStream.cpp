@@ -21,7 +21,7 @@ char CharStream::get() {
 }
 
 // True when pos_ has reached or passed the end of the source string.
-bool CharStream::eof()  const { return pos_ >= source_.size(); }
+bool CharStream::eof() const { return pos_ >= source_.size(); }
 
 // Returns the 1-based line number of the character that will be returned by the next get().
 int CharStream::getLine() const { return line_; }

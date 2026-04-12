@@ -73,24 +73,24 @@ TokenType classifySingleChar(char c) {
 TokenType classifyDoubleChar(char a, char b) {
     switch (a) {
         case '+': if (b=='+') return TokenType::INCREMENT;
-                  if (b=='=') return TokenType::PLUS_ASSIGN;    break;
+                  if (b=='=') return TokenType::PLUS_ASSIGN; break;
         case '-': if (b=='-') return TokenType::DECREMENT;
                   if (b=='=') return TokenType::MINUS_ASSIGN;
-                  if (b=='>') return TokenType::ARROW;          break;
-        case '*': if (b=='=') return TokenType::STAR_ASSIGN;    break;
-        case '/': if (b=='=') return TokenType::SLASH_ASSIGN;   break;
+                  if (b=='>') return TokenType::ARROW; break;
+        case '*': if (b=='=') return TokenType::STAR_ASSIGN; break;
+        case '/': if (b=='=') return TokenType::SLASH_ASSIGN; break;
         case '%': if (b=='=') return TokenType::PERCENT_ASSIGN; break;
-        case '=': if (b=='=') return TokenType::EQ;             break;
-        case '!': if (b=='=') return TokenType::NEQ;            break;
+        case '=': if (b=='=') return TokenType::EQ; break;
+        case '!': if (b=='=') return TokenType::NEQ; break;
         case '<': if (b=='=') return TokenType::LE;
-                  if (b=='<') return TokenType::LSHIFT;         break;
+                  if (b=='<') return TokenType::LSHIFT; break;
         case '>': if (b=='=') return TokenType::GE;
-                  if (b=='>') return TokenType::RSHIFT;         break;
+                  if (b=='>') return TokenType::RSHIFT; break;
         case '&': if (b=='&') return TokenType::LOGICAL_AND;
-                  if (b=='=') return TokenType::AND_ASSIGN;     break;
+                  if (b=='=') return TokenType::AND_ASSIGN; break;
         case '|': if (b=='|') return TokenType::LOGICAL_OR;
-                  if (b=='=') return TokenType::OR_ASSIGN;      break;
-        case '^': if (b=='=') return TokenType::XOR_ASSIGN;     break;
+                  if (b=='=') return TokenType::OR_ASSIGN; break;
+        case '^': if (b=='=') return TokenType::XOR_ASSIGN; break;
     }
     return TokenType::INVALID;
 }

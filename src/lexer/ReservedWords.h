@@ -12,7 +12,7 @@ public:
     ReservedWords();
 
     // Returns true if word is a recognised C keyword.
-    bool isKeyword(const string& word)  const;
+    bool isKeyword(const string& word)const;
 
     // Returns the TokenType for a keyword string, or TokenType::INVALID if not found.
     TokenType getKeywordType(const string& word) const;

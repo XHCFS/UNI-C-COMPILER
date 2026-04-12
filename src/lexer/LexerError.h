@@ -12,16 +12,16 @@ public:
                string offendingText = "");
 
     // Returns a formatted string: "LexerError [line:col] message ("text")".
-    string toString()    const;
+    string toString() const;
 
     // Returns the plain error message without location or offending text.
-    const string& getMessage()  const;
+    const string& getMessage()const;
 
     // Returns the 1-based line number where the error occurred.
-    int                getLine()     const;
+    int getLine() const;
 
     // Returns the 1-based column number where the error occurred.
-    int                getColumn()   const;
+    int getColumn() const;
 
 private:
     string message_;       // Human-readable description of what went wrong.

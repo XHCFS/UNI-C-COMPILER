@@ -33,7 +33,7 @@ private:
     Token nextToken();
 
     // Advances the stream past any whitespace characters, updating line/column tracking.
-    void  skipWhitespace();
+    void skipWhitespace();
 
     // Skips a // single-line or /* block comment; returns true if a comment was consumed.
     bool skipComment();
@@ -57,7 +57,7 @@ private:
     Token makeToken(TokenType type, const string& lexeme, int line, int column);
 
     // Appends a LexerError to errors_ with the supplied message and source location.
-    void  addError(const string& message, int line, int column,
+    void addError(const string& message, int line, int column,
                    const string& text = "");
 
     // Consumes the invalid character plus any attached identifier characters as one error (e.g. "@yz" → one error, not "@" + identifier "yz").
