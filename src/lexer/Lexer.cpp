@@ -1,177 +1,269 @@
 #include "Lexer.h"
-#include <cctype>
-#include <unordered_set>
-#include <stdexcept>
-#include <sstream>
+#include "TokenClassifier.h"
+using namespace std;
 
-static const std::unordered_set<std::string> KEYWORDS = {
-    "int", "float", "double", "char", "void",
-    "return", "if", "else", "while", "for", "do",
-    "break", "continue", "struct", "typedef",
-    "sizeof", "const", "unsigned", "long", "short"
-};
+// Binds the source text to a CharStream and stores a reference to the shared symbol table.
+Lexer::Lexer(const string& source, SymbolTable& symbolTable)
+    : input_(source), symbolTable_(symbolTable) {}
 
-Lexer::Lexer(const std::string& source) : source_(source) {
-    symbolTable_.enterScope(); // global scope
+// ---------------------------------------------------------------------------
+// Public
+// ---------------------------------------------------------------------------
+
+// Drives the scan loop until EOF, collecting every non-sentinel token into tokens_.
+vector<Token> Lexer::tokenize() {
+    while (!input_.eof()) {
+        Token t = nextToken();
+        if (!t.getLexeme().empty())   // discard EOF sentinel
+            tokens_.push_back(t);
+    }
+    return tokens_;
 }
 
-char Lexer::current() const {
-    return pos_ < source_.size() ? source_[pos_] : '\0';
-}
+// Returns the error list accumulated during the most recent tokenize() call.
+const vector<LexerError>& Lexer::getErrors() const { return errors_; }
 
-char Lexer::peek(int offset) const {
-    size_t idx = pos_ + offset;
-    return idx < source_.size() ? source_[idx] : '\0';
-}
+// ---------------------------------------------------------------------------
+// Core scan loop
+// ---------------------------------------------------------------------------
 
-char Lexer::advance() {
-    char c = source_[pos_++];
-    if (c == '\n') { ++line_; column_ = 1; }
-    else           { ++column_; }
-    return c;
-}
-
-void Lexer::skipWhitespace() {
-    while (pos_ < source_.size() && std::isspace(current())) advance();
-}
-
-void Lexer::skipLineComment() {
-    while (pos_ < source_.size() && current() != '\n') advance();
-}
-
-void Lexer::skipBlockComment() {
-    int startLine = line_;
-    advance(); advance(); // consume /*
-    while (pos_ < source_.size()) {
-        if (current() == '*' && peek() == '/') {
-            advance(); advance();
-            return;
+// Skips whitespace and comments, then dispatches to the appropriate scanner
+// based on the next character; loops on invalid characters instead of recurring.
+Token Lexer::nextToken() {
+    while (true) {
+        // Skip whitespace and comments alternately; guard EOF each cycle.
+        while (true) {
+            skipWhitespace();
+            if (input_.eof())
+                // EOF sentinel: empty lexeme + INVALID; tokenize() discards it.
+                return makeToken(TokenType::INVALID, "", input_.getLine(), input_.getColumn());
+            if (!skipComment()) break;
         }
-        advance();
+
+        char c = input_.peek();
+
+        if (isIdentifierStart(c)) return scanIdentifierOrKeyword();
+        if (isDigit(c)) return scanNumber();
+        if (c == '"') return scanStringLiteral();
+        if (c == '\'') return scanCharLiteral();
+        if (isOperatorStart(c) || isDelimiterChar(c)) return scanOperatorOrDelimiter();
+
+        // Unknown character: record error, consume, and loop (no recursion).
+        recoverFromInvalidCharacter();
     }
-    errors_.push_back("Unterminated block comment starting at line " + std::to_string(startLine));
 }
 
-bool Lexer::isKeyword(const std::string& s) const {
-    return KEYWORDS.count(s) > 0;
+// ---------------------------------------------------------------------------
+// Whitespace / comment skipping
+// ---------------------------------------------------------------------------
+
+// Calls input_.get() for each whitespace character, updating line/column via CharStream.
+void Lexer::skipWhitespace() {
+    while (!input_.eof() && isWhitespace(input_.peek()))
+        input_.get();
 }
 
-Token Lexer::readIdentifierOrKeyword() {
-    int startLine = line_, startCol = column_;
-    std::string lexeme;
-    while (pos_ < source_.size() && (std::isalnum(current()) || current() == '_'))
-        lexeme += advance();
-
-    if (isKeyword(lexeme)) return Token(TokenType::KEYWORD, lexeme, startLine, startCol);
-
-    // Insert into symbol table if new
-    if (!symbolTable_.lookup(lexeme)) {
-        Symbol sym;
-        sym.name       = lexeme;
-        sym.dataType   = "unknown";
-        sym.kind       = SymbolKind::VARIABLE;
-        sym.scopeLevel = symbolTable_.currentScope();
-        sym.lineNumber = startLine;
-        symbolTable_.insert(sym);
+// Detects // and /* comment styles, consumes them entirely, and returns true if one was found.
+bool Lexer::skipComment() {
+    // Single-line comment  //
+    if (input_.peek(0) == '/' && input_.peek(1) == '/') {
+        while (!input_.eof() && input_.peek() != '\n')
+            input_.get();
+        return true;
     }
-    return Token(TokenType::IDENTIFIER, lexeme, startLine, startCol);
+    // Block comment  /* ... */
+    if (input_.peek(0) == '/' && input_.peek(1) == '*') {
+        int startLine = input_.getLine();
+        int startCol  = input_.getColumn();
+        input_.get(); // '/'
+        input_.get(); // '*'
+        while (true) {
+            if (input_.eof()) {
+                addError("unterminated block comment", startLine, startCol, "/*");
+                return true;
+            }
+            if (input_.peek(0) == '*' && input_.peek(1) == '/') {
+                input_.get(); // '*'
+                input_.get(); // '/'
+                return true;
+            }
+            input_.get();
+        }
+    }
+    return false;
 }
 
-Token Lexer::readNumber() {
-    int startLine = line_, startCol = column_;
-    std::string lexeme;
+// ---------------------------------------------------------------------------
+// Token scanners
+// ---------------------------------------------------------------------------
+
+// Reads a maximal identifier string, looks it up in ReservedWords, and emits a keyword
+// or IDENTIFIER token; inserts identifiers into the symbol table.
+Token Lexer::scanIdentifierOrKeyword() {
+    int line = input_.getLine();
+    int col = input_.getColumn();
+    string lexeme = input_.consumeWhile(isIdentifierPart);
+
+    TokenType type = reservedWords_.getKeywordType(lexeme);
+    if (type == TokenType::INVALID)
+        type = TokenType::IDENTIFIER;
+
+    Token tok = makeToken(type, lexeme, line, col);
+    if (type == TokenType::IDENTIFIER)
+        symbolTable_.insert(tok);
+    return tok;
+}
+
+// Reads an integer or float literal; reports an error for invalid suffixes like "1abc".
+Token Lexer::scanNumber() {
+    int line = input_.getLine();
+    int col = input_.getColumn();
+    string lexeme = input_.consumeWhile(isDigit);
+
     bool isFloat = false;
-    while (pos_ < source_.size() && std::isdigit(current())) lexeme += advance();
-    if (current() == '.' && std::isdigit(peek())) {
+
+    // Fractional part: require at least one digit after the dot.
+    if (input_.peek(0) == '.' && isDigit(input_.peek(1))) {
         isFloat = true;
-        lexeme += advance(); // '.'
-        while (pos_ < source_.size() && std::isdigit(current())) lexeme += advance();
+        lexeme += input_.get(); // '.'
+        lexeme += input_.consumeWhile(isDigit);
     }
-    return Token(isFloat ? TokenType::FLOAT_LITERAL : TokenType::INT_LITERAL,
-                 lexeme, startLine, startCol);
+
+    // Invalid suffix: a letter or underscore glued to a number with no whitespace
+    // (e.g. 1num, 3.14abc). Consume the whole run and report one error token.
+    if (isIdentifierStart(input_.peek())) {
+        lexeme += input_.consumeWhile(isIdentifierPart);
+        addError("invalid numeric literal", line, col, lexeme);
+        return makeToken(TokenType::INVALID, lexeme, line, col);
+    }
+
+    return makeToken(isFloat ? TokenType::FLOAT_LITERAL : TokenType::INT_LITERAL,
+                     lexeme, line, col);
 }
 
-Token Lexer::readCharLiteral() {
-    int startLine = line_, startCol = column_;
-    std::string lexeme;
-    lexeme += advance(); // opening '
-    if (current() == '\\') { lexeme += advance(); lexeme += advance(); }
-    else if (current() != '\'') lexeme += advance();
-    if (current() == '\'') lexeme += advance();
-    else errors_.push_back("Unterminated char literal at line " + std::to_string(startLine));
-    return Token(TokenType::CHAR_LITERAL, lexeme, startLine, startCol);
+// Reads a single-quoted character literal, handling one escape sequence or plain character.
+Token Lexer::scanCharLiteral() {
+    int line = input_.getLine();
+    int col = input_.getColumn();
+    string lexeme;
+    lexeme += input_.get(); // opening '
+
+    if (input_.eof() || input_.peek() == '\n') {
+        addError("unterminated character literal", line, col, lexeme);
+        return makeToken(TokenType::CHAR_LITERAL, lexeme, line, col);
+    }
+
+    if (input_.peek() == '\\') {
+        lexeme += input_.get(); // backslash
+        if (!input_.eof())
+            lexeme += input_.get(); // escaped char
+    } else {
+        lexeme += input_.get(); // normal char
+    }
+
+    if (!input_.eof() && input_.peek() == '\'') {
+        lexeme += input_.get(); // closing '
+    } else {
+        addError("unterminated character literal", line, col, lexeme);
+    }
+    return makeToken(TokenType::CHAR_LITERAL, lexeme, line, col);
 }
 
-Token Lexer::readStringLiteral() {
-    int startLine = line_, startCol = column_;
-    std::string lexeme;
-    lexeme += advance(); // opening "
-    while (pos_ < source_.size() && current() != '"' && current() != '\n') {
-        if (current() == '\\') lexeme += advance();
-        lexeme += advance();
+// Reads a double-quoted string literal, handling escape sequences until the closing quote.
+Token Lexer::scanStringLiteral() {
+    int line = input_.getLine();
+    int col  = input_.getColumn();
+    string lexeme;
+    lexeme += input_.get(); // opening "
+
+    while (true) {
+        if (input_.eof() || input_.peek() == '\n') {
+            addError("unterminated string literal", line, col, lexeme);
+            recoverFromUnterminatedString();
+            return makeToken(TokenType::STRING_LITERAL, lexeme, line, col);
+        }
+        if (input_.peek() == '"') {
+            lexeme += input_.get(); // closing "
+            break;
+        }
+        if (input_.peek() == '\\') {
+            lexeme += input_.get(); // backslash
+            if (!input_.eof())
+                lexeme += input_.get(); // escaped char
+        } else {
+            lexeme += input_.get();
+        }
     }
-    if (current() == '"') lexeme += advance();
-    else errors_.push_back("Unterminated string literal at line " + std::to_string(startLine));
-    return Token(TokenType::STRING_LITERAL, lexeme, startLine, startCol);
+    return makeToken(TokenType::STRING_LITERAL, lexeme, line, col);
 }
 
-Token Lexer::readOperatorOrPunct() {
-    int startLine = line_, startCol = column_;
-    char c = advance();
-    char n = current();
-    switch (c) {
-        case '+': return Token(TokenType::PLUS,      "+", startLine, startCol);
-        case '-': return Token(TokenType::MINUS,     "-", startLine, startCol);
-        case '*': return Token(TokenType::STAR,      "*", startLine, startCol);
-        case '/': return Token(TokenType::SLASH,     "/", startLine, startCol);
-        case '%': return Token(TokenType::PERCENT,   "%", startLine, startCol);
-        case '(': return Token(TokenType::LPAREN,    "(", startLine, startCol);
-        case ')': return Token(TokenType::RPAREN,    ")", startLine, startCol);
-        case '{': return Token(TokenType::LBRACE,    "{", startLine, startCol);
-        case '}': return Token(TokenType::RBRACE,    "}", startLine, startCol);
-        case '[': return Token(TokenType::LBRACKET,  "[", startLine, startCol);
-        case ']': return Token(TokenType::RBRACKET,  "]", startLine, startCol);
-        case ';': return Token(TokenType::SEMICOLON, ";", startLine, startCol);
-        case ',': return Token(TokenType::COMMA,     ",", startLine, startCol);
-        case '!': if (n=='='){advance();return Token(TokenType::NEQ,"!=",startLine,startCol);}
-                  return Token(TokenType::NOT, "!", startLine, startCol);
-        case '<': if (n=='='){advance();return Token(TokenType::LE,"<=",startLine,startCol);}
-                  return Token(TokenType::LT, "<", startLine, startCol);
-        case '>': if (n=='='){advance();return Token(TokenType::GE,">=",startLine,startCol);}
-                  return Token(TokenType::GT, ">", startLine, startCol);
-        case '=': if (n=='='){advance();return Token(TokenType::EQ,"==",startLine,startCol);}
-                  return Token(TokenType::ASSIGN, "=", startLine, startCol);
-        case '&': if (n=='&'){advance();return Token(TokenType::AND,"&&",startLine,startCol);}
-                  break;
-        case '|': if (n=='|'){advance();return Token(TokenType::OR,"||",startLine,startCol);}
-                  break;
-        default: break;
+// Peeks up to three characters to identify <<= / >>= first, then two-char operators,
+// then falls back to single-character classification.
+Token Lexer::scanOperatorOrDelimiter() {
+    int  line = input_.getLine();
+    int  col  = input_.getColumn();
+    char c0   = input_.peek(0);
+    char c1   = input_.peek(1);
+    char c2   = input_.peek(2);
+
+    // Three-character compound shift-assignment: <<= and >>=
+    if ((c0 == '<' && c1 == '<' && c2 == '=') ||
+        (c0 == '>' && c1 == '>' && c2 == '=')) {
+        string lex(1, input_.get());
+        lex += input_.get();
+        lex += input_.get();
+        TokenType type = (c0 == '<') ? TokenType::LSHIFT_ASSIGN
+                                     : TokenType::RSHIFT_ASSIGN;
+        return makeToken(type, lex, line, col);
     }
-    std::string msg = "Unknown character '";
-    msg += c;
-    msg += "' at line " + std::to_string(startLine) + ":" + std::to_string(startCol);
-    errors_.push_back(msg);
-    return Token(TokenType::UNKNOWN, std::string(1, c), startLine, startCol);
+
+    // Two-character operators
+    TokenType two = classifyDoubleChar(c0, c1);
+    if (two != TokenType::INVALID) {
+        string lex(1, input_.get());
+        lex += input_.get();
+        return makeToken(two, lex, line, col);
+    }
+
+    // Single-character operators and delimiters
+    string lex(1, input_.get());
+    return makeToken(classifySingleChar(c0), lex, line, col);
 }
 
-std::vector<Token> Lexer::tokenize() {
-    std::vector<Token> tokens;
-    while (pos_ < source_.size()) {
-        skipWhitespace();
-        if (pos_ >= source_.size()) break;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-        char c = current();
+// Wraps the Token constructor; centralises token creation for easier future changes.
+Token Lexer::makeToken(TokenType type, const string& lexeme,
+                       int line, int column) {
+    return Token(type, lexeme, line, column);
+}
 
-        if (c == '/' && peek() == '/') { skipLineComment();  continue; }
-        if (c == '/' && peek() == '*') { skipBlockComment(); continue; }
+// Appends a new LexerError to errors_ with the given message and source location.
+void Lexer::addError(const string& message, int line, int column,
+                     const string& text) {
+    errors_.emplace_back(message, line, column, text);
+}
 
-        if (std::isalpha(c) || c == '_') { tokens.push_back(readIdentifierOrKeyword()); continue; }
-        if (std::isdigit(c))             { tokens.push_back(readNumber());               continue; }
-        if (c == '\'')                   { tokens.push_back(readCharLiteral());          continue; }
-        if (c == '"')                    { tokens.push_back(readStringLiteral());         continue; }
+// Consumes the invalid character and any immediately following identifier characters
+// as one unit, so "@yz" is reported as a single error rather than "@" + identifier "yz".
+void Lexer::recoverFromInvalidCharacter() {
+    int  line = input_.getLine();
+    int  col  = input_.getColumn();
+    string text(1, input_.get());              // consume the invalid character
+    text += input_.consumeWhile(isIdentifierPart); // consume any attached letters/digits/_
+    addError("invalid character sequence", line, col, text);
+}
 
-        tokens.push_back(readOperatorOrPunct());
-    }
-    tokens.emplace_back(TokenType::END_OF_FILE, "EOF", line_, column_);
-    return tokens;
+// Advances past the remainder of the current line so the next line can be scanned cleanly
+// after an unterminated string literal.
+void Lexer::recoverFromUnterminatedString() {
+    while (!input_.eof() && input_.peek() != '\n')
+        input_.get();
+}
+
+// Placeholder — unterminated block-comment recovery is handled inline inside skipComment().
+void Lexer::recoverFromUnterminatedComment() {
+    // Handled inline in skipComment(); present for design completeness.
 }
