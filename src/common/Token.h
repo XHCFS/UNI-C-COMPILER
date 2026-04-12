@@ -1,6 +1,10 @@
 #pragma once
 #include <string>
+using namespace  std;
 
+// Exhaustive enumeration of every token category the lexer can produce.
+// The ordering of enumerators within each group is load-bearing: isKeyword(),
+// isLiteral(), isOperator(), and isDelimiter() all rely on contiguous ranges.
 enum class TokenType {
 
     // --- C23 Keywords ---
@@ -116,28 +120,46 @@ enum class TokenType {
     INVALID
 };
 
+// A single lexical unit produced by the Lexer, carrying its classification,
+// raw text, and source location.
 class Token {
 public:
-    Token(TokenType type, std::string lexeme, int line, int column);
+    // Constructs a token with the given type, text, and source position.
+    Token(TokenType type, string lexeme, int line, int column);
 
-    TokenType          getType()   const;
-    const std::string& getLexeme() const;
-    int                getLine()   const;
-    int                getColumn() const;
+    // Returns the classification of this token (e.g. KW_INT, IDENTIFIER).
+    TokenType getType()  const;
 
-    // Category checks: each tests a contiguous range in the enum.
-    bool isKeyword()   const;   // any KW_* variant
-    bool isLiteral()   const;   // INT/FLOAT/CHAR/STRING literal
-    bool isOperator()  const;   // arithmetic, bitwise, logical, relational, assignment, member-access, ? :
-    bool isDelimiter() const;   // ( ) { } [ ] ; ,
+    // Returns the exact text slice from the source that produced this token.
+    const string& getLexeme() const;
 
-    std::string toString() const;
+    // Returns the 1-based source line on which this token starts.
+    int getLine() const;
+
+    // Returns the 1-based source column on which this token starts.
+    int getColumn() const;
+
+    // Returns true if this token is any C keyword (KW_IF … KW__DECIMAL128).
+    bool isKeyword() const;
+
+    // Returns true if this token is an integer, float, char, or string literal.
+    bool isLiteral() const;
+
+    // Returns true if this token is any operator (arithmetic through ternary colon).
+    bool isOperator()  const;
+
+    // Returns true if this token is a delimiter: ( ) { } [ ] ; ,
+    bool isDelimiter() const;
+
+    // Returns a human-readable string in the form [TYPE 'lexeme' L<line>:C<col>].
+    string toString() const;
 
 private:
-    TokenType   type_;
-    std::string lexeme_;
-    int         line_;
-    int         column_;
+    TokenType  type_;    // Enum tag that classifies this token.
+    string lexeme_;  // Raw source text of the token.
+    int line_;    // 1-based line number where the token begins.
+    int  column_;  // 1-based column number where the token begins.
 };
 
-std::string tokenTypeToString(TokenType type);
+// Converts a TokenType enumerator to its name as a string (e.g. KW_INT → "KW_INT").
+string tokenTypeToString(TokenType type);

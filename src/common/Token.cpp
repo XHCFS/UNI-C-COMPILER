@@ -1,49 +1,58 @@
 #include "Token.h"
 #include <sstream>
-
+using namespace std;
 // ---------------------------------------------------------------------------
 // Token
 // ---------------------------------------------------------------------------
 
-// This is to know if the token is a keyword, literal, operator, or a delimiter
+// Anonymous helper: converts a TokenType to its underlying integer for range comparisons.
 namespace {
     constexpr int asInt(TokenType t) { return static_cast<int>(t); }
 }
 
-Token::Token(TokenType type, std::string lexeme, int line, int column)
-    : type_(type), lexeme_(std::move(lexeme)), line_(line), column_(column) {}
+// Initialises all four fields via member-initialiser list; moves lexeme to avoid a copy.
+Token::Token(TokenType type, string lexeme, int line, int column)
+    : type_(type), lexeme_(move(lexeme)), line_(line), column_(column) {}
 
-TokenType          Token::getType()   const { return type_; }
-const std::string& Token::getLexeme() const { return lexeme_; }
-int                Token::getLine()   const { return line_; }
-int                Token::getColumn() const { return column_; }
+// Returns the TokenType tag stored in type_.
+TokenType Token::getType()   const { return type_; }
 
+// Returns a const reference to the raw source text stored in lexeme_.
+const string& Token::getLexeme() const { return lexeme_; }
+
+// Returns the 1-based source line stored in line_.
+int Token::getLine()   const { return line_; }
+
+// Returns the 1-based source column stored in column_.
+int Token::getColumn() const { return column_; }
+
+// True when type_ falls within the contiguous KW_IF…KW__DECIMAL128 range in the enum.
 bool Token::isKeyword() const {
-    // Relies on KW_IF...KW__DECIMAL128 being a contiguous range in the enum (see Token.h).
     return asInt(type_) >= asInt(TokenType::KW_IF)
         && asInt(type_) <= asInt(TokenType::KW__DECIMAL128);
 }
 
+// True when type_ falls within the contiguous INT_LITERAL…STRING_LITERAL range.
 bool Token::isLiteral() const {
-    // Relies on INT_LITERAL...STRING_LITERAL being a contiguous range in the enum.
     return asInt(type_) >= asInt(TokenType::INT_LITERAL)
         && asInt(type_) <= asInt(TokenType::STRING_LITERAL);
 }
 
+// True when type_ falls within the contiguous PLUS…COLON range covering all operator kinds.
 bool Token::isOperator() const {
-    // Covers all operator variants: PLUS through COLON (contiguous range).
     return asInt(type_) >= asInt(TokenType::PLUS)
         && asInt(type_) <= asInt(TokenType::COLON);
 }
 
+// True when type_ falls within the contiguous LPAREN…COMMA range covering all delimiters.
 bool Token::isDelimiter() const {
-    // Covers LPAREN through COMMA (contiguous range).
     return asInt(type_) >= asInt(TokenType::LPAREN)
         && asInt(type_) <= asInt(TokenType::COMMA);
 }
 
-std::string Token::toString() const {
-    std::ostringstream oss;
+// Formats the token as "[TYPE 'lexeme' L<line>:C<col>]" for debugging output.
+string Token::toString() const {
+    ostringstream oss;
     oss << "[" << tokenTypeToString(type_)
         << " '" << lexeme_ << "'"
         << " L" << line_ << ":C" << column_ << "]";
@@ -54,7 +63,8 @@ std::string Token::toString() const {
 // tokenTypeToString
 // ---------------------------------------------------------------------------
 
-std::string tokenTypeToString(TokenType type) {
+// Maps every TokenType enumerator to its name as a string; returns "UNKNOWN" for any unhandled value.
+string tokenTypeToString(TokenType type) {
     switch (type) {
         // Control flow keywords
         case TokenType::KW_IF:              return "KW_IF";
