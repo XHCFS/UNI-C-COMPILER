@@ -1,52 +1,27 @@
 #include "SymbolTable.h"
-#include <iostream>
 
-void SymbolTable::enterScope() {
-    scopes_.emplace_back();
-    ++scopeLevel_;
-}
+SymbolTable::SymbolTable() = default;
 
-void SymbolTable::exitScope() {
-    if (!scopes_.empty()) {
-        scopes_.pop_back();
-        --scopeLevel_;
-    }
-}
-
-bool SymbolTable::insert(const Symbol& symbol) {
-    if (scopes_.empty()) enterScope();
-    auto& current = scopes_.back();
-    if (current.count(symbol.name)) return false; // already declared in this scope
-    current[symbol.name] = symbol;
+bool SymbolTable::insert(const Token& token) {
+    const std::string& name = token.getLexeme();
+    if (entries_.count(name)) return false;
+    entries_.emplace(name, SymbolEntry(token));
     return true;
 }
 
-std::optional<Symbol> SymbolTable::lookup(const std::string& name) const {
-    // Search from innermost to outermost scope
-    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
-        auto found = it->find(name);
-        if (found != it->end()) return found->second;
-    }
-    return std::nullopt;
+bool SymbolTable::exists(const std::string& name) const {
+    return entries_.count(name) > 0;
 }
 
-void SymbolTable::print() const {
-    std::cout << "\n=== Symbol Table ===\n";
-    std::cout << std::left;
-    std::cout << "Name             Type        Kind        Scope  Line\n";
-    std::cout << std::string(55, '-') << "\n";
-    for (const auto& scope : scopes_) {
-        for (const auto& [name, sym] : scope) {
-            std::string kindStr;
-            switch (sym.kind) {
-                case SymbolKind::VARIABLE:  kindStr = "variable";  break;
-                case SymbolKind::FUNCTION:  kindStr = "function";  break;
-                case SymbolKind::PARAMETER: kindStr = "parameter"; break;
-            }
-            printf("%-16s %-11s %-11s %-6d %d\n",
-                sym.name.c_str(), sym.dataType.c_str(),
-                kindStr.c_str(), sym.scopeLevel, sym.lineNumber);
-        }
-    }
-    std::cout << "====================\n\n";
+SymbolEntry* SymbolTable::find(const std::string& name) {
+    auto it = entries_.find(name);
+    return it != entries_.end() ? &it->second : nullptr;
+}
+
+const std::unordered_map<std::string, SymbolEntry>& SymbolTable::getAllEntries() const {
+    return entries_;
+}
+
+void SymbolTable::clear() {
+    entries_.clear();
 }
