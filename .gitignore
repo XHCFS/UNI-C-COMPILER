@@ -30,3 +30,6 @@ CTestTestfile.cmake
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Local CMake preset overrides (machine-specific paths)
+CMakeUserPresets.json
