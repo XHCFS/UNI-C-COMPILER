@@ -65,7 +65,4 @@ private:
 
     // Advances past the rest of the current line to resync after an unterminated string.
     void recoverFromUnterminatedString();
-
-    // Placeholder for unterminated-comment recovery (handled inline in skipComment()).
-    void recoverFromUnterminatedComment();
 };

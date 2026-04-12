@@ -263,7 +263,3 @@ void Lexer::recoverFromUnterminatedString() {
         input_.get();
 }
 
-// Placeholder — unterminated block-comment recovery is handled inline inside skipComment().
-void Lexer::recoverFromUnterminatedComment() {
-    // Handled inline in skipComment(); present for design completeness.
-}

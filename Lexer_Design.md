@@ -440,7 +440,6 @@ The main lexical analyzer. Reads source code, produces tokens, updates the symbo
 | `void addError(const std::string& message, int line, int column, const std::string& text = "")` | Store a lexical error | Appends a new `LexerError` to `errors_`. |
 | `void recoverFromInvalidCharacter()` | Recover after unknown input | Consumes the invalid character **and any immediately following identifier characters** as one unit (maximal munch), then records them as a single `"invalid character sequence"` error. For example, `@yz` becomes one error, not `@` + identifier `yz`. Does not produce a token; `nextToken()` loops to the next character. |
 | `void recoverFromUnterminatedString()` | Recover after unterminated string | Advances the stream past the remainder of the current line so the next line can be scanned cleanly. |
-| `void recoverFromUnterminatedComment()` | Placeholder | Empty body; unterminated block-comment recovery is handled inline inside `skipComment()` which records the error and returns when EOF is hit. Present for design completeness only. |
 
 ### Actual flow inside `tokenize()`
 1. While `!input_.eof()`, call `nextToken()`.
