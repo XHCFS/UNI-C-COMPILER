@@ -2,13 +2,14 @@
 #include "SymbolTable.h"
 #include <cassert>
 #include <iostream>
+using namespace std;
 
 static int passed = 0;
 static int failed = 0;
 
 #define ASSERT_EQ(a, b, msg) \
     if ((a) == (b)) { ++passed; } \
-    else { std::cerr << "FAIL: " << msg << "\n  expected: " #b "\n  got: " << (a) << "\n"; ++failed; }
+    else { cerr << "FAIL: " << msg << "\n  expected: " #b "\n  got: " << (a) << "\n"; ++failed; }
 
 void testKeywordRecognition() {
     SymbolTable st;
@@ -23,7 +24,7 @@ void testIdentifier() {
     Lexer lex("myVar _count x1", st);
     auto tokens = lex.tokenize();
     ASSERT_EQ((int)tokens[0].getType(), (int)TokenType::IDENTIFIER, "identifier myVar");
-    ASSERT_EQ(tokens[0].getLexeme(), std::string("myVar"), "lexeme myVar");
+    ASSERT_EQ(tokens[0].getLexeme(), string("myVar"), "lexeme myVar");
 }
 
 void testIntLiteral() {
@@ -31,7 +32,7 @@ void testIntLiteral() {
     Lexer lex("42 0 1000", st);
     auto tokens = lex.tokenize();
     ASSERT_EQ((int)tokens[0].getType(), (int)TokenType::INT_LITERAL, "int literal 42");
-    ASSERT_EQ(tokens[0].getLexeme(), std::string("42"), "lexeme 42");
+    ASSERT_EQ(tokens[0].getLexeme(), string("42"), "lexeme 42");
 }
 
 void testFloatLiteral() {
@@ -124,8 +125,8 @@ void testDeclareShadowing() {
     SymbolEntry* e1 = st.find("x", 1);
     ASSERT_EQ(e0 != nullptr,                   true,  "find x at scope 0");
     ASSERT_EQ(e1 != nullptr,                   true,  "find x at scope 1");
-    ASSERT_EQ(e0->getDataType(), std::string("int"),   "x at scope 0 is int");
-    ASSERT_EQ(e1->getDataType(), std::string("float"), "x at scope 1 is float");
+    ASSERT_EQ(e0->getDataType(), string("int"),   "x at scope 0 is int");
+    ASSERT_EQ(e1->getDataType(), string("float"), "x at scope 1 is float");
     ASSERT_EQ(e0->getScope(),    0,                    "x at scope 0 has scope_=0");
     ASSERT_EQ(e1->getScope(),    1,                    "x at scope 1 has scope_=1");
 }
@@ -145,7 +146,7 @@ void testLookupShadowing() {
     SymbolEntry* nearest = st.lookup("x", {0, 2});
     ASSERT_EQ(nearest != nullptr,                       true,  "lookup finds x in active chain");
     ASSERT_EQ(nearest->getScope(),                      2,     "lookup returns innermost (scope 2)");
-    ASSERT_EQ(nearest->getDataType(), std::string("float"),    "lookup returns inner-x type");
+    ASSERT_EQ(nearest->getDataType(), string("float"),    "lookup returns inner-x type");
 
     // After popping scope 2 (active chain {0}): outer is visible.
     SymbolEntry* outer = st.lookup("x", {0});
@@ -188,6 +189,6 @@ int main() {
     testLookupShadowing();
     testThreeLaneCoexistence();
 
-    std::cout << "\nLexer Tests: " << passed << " passed, " << failed << " failed.\n";
+    cout << "\nLexer Tests: " << passed << " passed, " << failed << " failed.\n";
     return failed == 0 ? 0 : 1;
 }

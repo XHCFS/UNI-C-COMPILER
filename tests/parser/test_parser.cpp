@@ -6,16 +6,17 @@
 #include <iostream>
 #include <vector>
 #include <string>
+using namespace std;
 
 static int passed = 0;
 static int failed = 0;
 
 #define ASSERT_EQ(a, b, msg) \
     if ((a) == (b)) { ++passed; } \
-    else { std::cerr << "FAIL: " << msg << "\n  expected: " #b "\n  got: " << (a) << "\n"; ++failed; }
+    else { cerr << "FAIL: " << msg << "\n  expected: " #b "\n  got: " << (a) << "\n"; ++failed; }
 
 // Sample token sequence representing `int x = 42;` for stream-shape tests.
-static std::vector<Token> sampleTokens() {
+static vector<Token> sampleTokens() {
     return {
         Token(TokenType::KW_INT,      "int", 1, 1),
         Token(TokenType::IDENTIFIER,  "x",   1, 5),
@@ -38,7 +39,7 @@ void testPeekWithOffset() {
     TokenStream s(toks);
     ASSERT_EQ((int)s.peek(0).getType(), (int)TokenType::KW_INT,     "peek(0) -> KW_INT");
     ASSERT_EQ((int)s.peek(1).getType(), (int)TokenType::IDENTIFIER, "peek(1) -> IDENTIFIER");
-    ASSERT_EQ(s.peek(2).getLexeme(),    std::string("="),           "peek(2) lexeme '='");
+    ASSERT_EQ(s.peek(2).getLexeme(),    string("="),           "peek(2) lexeme '='");
     // Past-end peek returns the sentinel (INVALID).
     ASSERT_EQ((int)s.peek(99).getType(), (int)TokenType::INVALID,   "peek past end -> sentinel");
 }
@@ -61,7 +62,7 @@ void testEofAfterAllConsumed() {
     // get() past end keeps returning the sentinel without advancing further.
     Token sentinel = s.get();
     ASSERT_EQ((int)sentinel.getType(), (int)TokenType::INVALID, "get past end -> sentinel type");
-    ASSERT_EQ(sentinel.getLexeme(),    std::string(""),         "sentinel lexeme empty");
+    ASSERT_EQ(sentinel.getLexeme(),    string(""),         "sentinel lexeme empty");
     ASSERT_EQ(s.eof(),                 true,                    "eof stays true past end");
 }
 
@@ -76,7 +77,7 @@ void testEofSentinelLineColFromLastToken() {
 }
 
 void testEofSentinelEmptyStream() {
-    std::vector<Token> empty;
+    vector<Token> empty;
     TokenStream s(empty);
     ASSERT_EQ(s.eof(), true, "empty stream is EOF immediately");
     Token sentinel = s.peek();
@@ -115,7 +116,7 @@ void testMatchLeavesCursorOnMiss() {
 }
 
 void testMatchAtEofIsFalse() {
-    std::vector<Token> empty;
+    vector<Token> empty;
     TokenStream s(empty);
     ASSERT_EQ(s.match(TokenType::SEMICOLON), false, "match at EOF returns false");
     ASSERT_EQ(s.eof(),                       true,  "eof unchanged after match at EOF");
@@ -133,7 +134,7 @@ void testCheckIsPeekOnly() {
 
 void testParseErrorGetters() {
     ParseError e("expected ';'", 3, 14, ";missing");
-    ASSERT_EQ(e.getMessage(), std::string("expected ';'"), "getMessage returns plain message");
+    ASSERT_EQ(e.getMessage(), string("expected ';'"), "getMessage returns plain message");
     ASSERT_EQ(e.getLine(),    3,                            "getLine returns line");
     ASSERT_EQ(e.getColumn(),  14,                           "getColumn returns column");
 }
@@ -141,14 +142,14 @@ void testParseErrorGetters() {
 void testParseErrorToStringWithText() {
     ParseError e("expected ';'", 3, 14, "}");
     ASSERT_EQ(e.toString(),
-              std::string("ParseError [3:14] expected ';' (\"}\")"),
+              string("ParseError [3:14] expected ';' (\"}\")"),
               "toString includes prefix, location, message, and quoted offending text");
 }
 
 void testParseErrorToStringWithoutText() {
     ParseError e("unexpected end of file", 7, 1);
     ASSERT_EQ(e.toString(),
-              std::string("ParseError [7:1] unexpected end of file"),
+              string("ParseError [7:1] unexpected end of file"),
               "toString omits parens when offendingText is empty");
 }
 
@@ -156,7 +157,7 @@ void testParseErrorDefaultOffendingText() {
     // The default-arg form should be equivalent to passing an empty string.
     ParseError e("missing return type", 1, 1);
     ASSERT_EQ(e.toString(),
-              std::string("ParseError [1:1] missing return type"),
+              string("ParseError [1:1] missing return type"),
               "default-arg ctor produces same toString as explicit empty text");
 }
 
@@ -164,7 +165,7 @@ void testParseErrorDefaultOffendingText() {
 
 void testParserConstructsWithEmptyStream() {
     SymbolTable st;
-    std::vector<Token> empty;
+    vector<Token> empty;
     Parser p(empty, st);
     ASSERT_EQ(p.getErrors().empty(), true, "fresh parser has no errors");
 }
@@ -197,6 +198,6 @@ int main() {
     testParserConstructsWithEmptyStream();
     testParserConstructsWithTokens();
 
-    std::cout << "\nParser Tests: " << passed << " passed, " << failed << " failed.\n";
+    cout << "\nParser Tests: " << passed << " passed, " << failed << " failed.\n";
     return failed == 0 ? 0 : 1;
 }
