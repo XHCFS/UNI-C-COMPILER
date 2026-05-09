@@ -90,11 +90,15 @@ void LexerPanel::showResults(const vector<Token>& tokens,
 
     // Symbol table tab — sort by first-occurrence line so entries appear in source order.
     // getAllEntries() returns an unordered_map whose iteration order is arbitrary.
+    // Filter to the lexer lane (scope == -1); parser-lane entries (scope >= 0)
+    // belong to the future ParserPanel.
     const auto& entries = table.getAllEntries();
     vector<const SymbolEntry*> sorted;
     sorted.reserve(entries.size());
-    for (const auto& [name, entry] : entries)
-        sorted.push_back(&entry);
+    for (const auto& [key, entry] : entries) {
+        if (key.scope == -1)
+            sorted.push_back(&entry);
+    }
     sort(sorted.begin(), sorted.end(),
         [](const SymbolEntry* a, const SymbolEntry* b) {
             return a->getLine() != b->getLine()

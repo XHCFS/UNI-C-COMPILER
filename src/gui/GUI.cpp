@@ -21,8 +21,8 @@ void GUI::showLexerOutput(const vector<Token>& tokens,
                   << tok.getLexeme() << "  (line " << tok.getLine() << ")\n";
     }
     cout << "\n--- Symbol Table ---\n";
-    for (const auto& [name, entry] : table.getAllEntries())
-        cout << name << "  (line " << entry.getLine() << ")\n";
+    for (const auto& [key, entry] : table.getAllEntries())
+        cout << key.name << "  (line " << entry.getLine() << ", scope " << key.scope << ")\n";
     if (!errors.empty()) {
         cout << "--- Lexer Errors ---\n";
         for (const auto& e : errors) cout << e << "\n";
