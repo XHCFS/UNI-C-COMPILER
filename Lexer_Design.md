@@ -38,7 +38,9 @@ src/
 
 tests/
 └── lexer/
+    ├── test_lexer.cpp          ← unit-test runner with ASSERT_EQ macros, exercises tokenize()
     ├── basic.c                 ← variables, literals, return
+    ├── keywords.c              ← type specifiers, qualifiers, storage-class, sizeof, typedef
     ├── operators.c             ← all operators and compound assignments
     ├── control_flow.c          ← if/else, while, do-while, for, switch
     ├── comments.c              ← line and block comments
@@ -240,22 +242,29 @@ Represents one token produced by the lexer.
 **File:** `src/common/SymbolEntry.h`, `src/common/SymbolEntry.cpp`
 
 ### Purpose
-Stores one identifier record inside the symbol table.
+Stores one identifier record inside the symbol table. The same `SymbolEntry` shape is used by both the lexer and the parser; what distinguishes lexer entries from parser entries is the `scope` half of their composite key in `SymbolTable` (see §3.3), not the entry shape itself.
 
 ### Important ownership rule
-The **lexer** fills only:
-- `token_` (which carries the identifier name, line, and column)
+The composite-keyed `SymbolTable` supports three lanes:
+- **Lexer lane** (`scope = -1`) — created by `Lexer::scanIdentifierOrKeyword()` for every first-seen identifier name.
+- **Parser lane file scope** (`scope = 0`) — created by the parser through `SymbolTable::declare()`.
+- **Parser lane nested scopes** (`scope ≥ 1`) — created by the parser through `SymbolTable::declare()`, one fresh ID per `{`.
 
-The **parser later fills**:
-- `dataType_`
-- `scope_`
+The **lexer** fills its lane via `SymbolTable::insert(token)` (default `scope = -1`):
+- `token_` (the identifier token)
+- `scope_` is left at its default `-1`, mirroring the lexer-lane key.
 
-So the symbol entry is created by the lexer but stays only partially completed during the lexer phase.
+The **parser** fills each declaration lane via `SymbolTable::declare(token, scope, dataType)`:
+- `token_` from the declaration's identifier token
+- `dataType_` set to `Type::toString()`
+- `scope_` set to the active scope ID, mirroring the parser-lane key.
+
+A single name may correspond to several entries — one in the lexer lane plus zero or more in parser lanes — each at a distinct `(scope, name)` key.
 
 ### Attributes
 - `Token token_` — the identifier token, carrying name, line, and column.
-- `std::string dataType_` — left empty during lexing; filled by the parser.
-- `int scope_` — initialised to `-1` during lexing; filled by the parser.
+- `std::string dataType_` — left empty by the lexer; filled by the parser through `declare()`.
+- `int scope_` — initialised to `-1` for lexer entries; set to the declaration's scope ID for parser entries (mirrors the table key).
 
 ### Methods
 
@@ -276,30 +285,33 @@ So the symbol entry is created by the lexer but stays only partially completed d
 **File:** `src/common/SymbolTable.h`, `src/common/SymbolTable.cpp`
 
 ### Purpose
-Acts as the identifier table built during the lexer phase.
+Acts as the **shared** identifier table for both the lexer and the parser. Hashed on a composite `(scope, name)` key so multiple declarations of the same name in different scopes coexist without collision.
 
-### Important design rule
-Only the operations the lexer actually needs are included:
-- inserting identifiers,
-- checking whether an identifier already exists,
-- retrieving an existing entry,
-- returning all entries,
-- clearing the table for a new run.
+### Three lanes share one map
+| Lane | Key range | Owner | Meaning |
+|---|---|---|---|
+| Lexer | `scope = -1` | `Lexer::scanIdentifierOrKeyword()` via `insert(token)` (default arg) | "this identifier name appears in source" — first-seen line/col only |
+| Parser file scope | `scope = 0` | `Parser` via `declare(token, 0, dataType)` | top-level declaration |
+| Parser nested scopes | `scope ≥ 1` | `Parser` via `declare(token, n, dataType)` | block-scoped declaration; shadowing welcome |
 
-Scope management, type assignment, and declaration context belong to the parser phase.
+The default argument on `insert(...)` keeps the existing lexer call site (`symbolTable_.insert(tok)`) unchanged.
 
 ### Attributes
-- `std::unordered_map<std::string, SymbolEntry> entries_` — hash map keyed by identifier name.
+- `std::unordered_map<Key, SymbolEntry, KeyHash> entries_` — composite-keyed hash map.
+- (private) `struct Key { int scope; std::string name; bool operator==(const Key&) const noexcept; }`.
+- (private) `struct KeyHash { size_t operator()(const Key&) const noexcept; }` — typically combines `std::hash<int>` on `scope` with `std::hash<std::string>` on `name`.
 
 ### Methods
 
 | Function | Purpose | What exactly it does |
 |---|---|---|
 | `SymbolTable()` | Initialize the symbol table | Creates an empty table. |
-| `bool insert(const Token& token)` | Insert a new identifier entry | Inserts a new `SymbolEntry` keyed on `token.getLexeme()` and returns `true`. Returns `false` without inserting if the name already exists. Scope resolution is left to the parser. |
-| `bool exists(const std::string& name) const` | Check whether identifier is already stored | Returns `true` if the name is present in `entries_`. |
-| `SymbolEntry* find(const std::string& name)` | Retrieve an identifier entry | Returns a mutable pointer to the entry, or `nullptr` if not found. |
-| `const std::unordered_map<std::string, SymbolEntry>& getAllEntries() const` | Return the full table | Returns a read-only reference to the whole map for GUI display or later phases. |
+| `bool insert(const Token& token, int scope = -1)` | Insert a lexer-lane (or scope-tagged) entry | Inserts a new `SymbolEntry` keyed on `(scope, token.getLexeme())` and sets `entry.scope_ = scope`. Returns `false` without inserting if the same `(scope, name)` already exists. The default `scope = -1` makes `Lexer::scanIdentifierOrKeyword()`'s call (`insert(tok)`) write into the lexer lane unchanged. |
+| `bool declare(const Token& token, int scope, const std::string& dataType)` | Parser-side declaration write | Inserts a new entry at `(scope, token.getLexeme())` with `dataType_` and `scope_` populated. Returns `false` (and does not insert) when the same `(scope, name)` is already present — that is the same-scope-redeclaration case. |
+| `bool exists(const std::string& name, int scope) const` | Exact-scope existence check | Returns `true` if `(scope, name)` is present in `entries_`. |
+| `SymbolEntry* find(const std::string& name, int scope)` | Exact-scope retrieval | Returns a mutable pointer to the entry at `(scope, name)`, or `nullptr` if not found. |
+| `SymbolEntry* lookup(const std::string& name, const std::vector<int>& activeScopes)` | Shadowing-aware retrieval | Walks `activeScopes` innermost-to-outermost (back to front), returning the first matching entry; returns `nullptr` if no scope in the chain has the name. The lexer's `scope = -1` lane is intentionally never visited — callers pass only real scope IDs (`≥ 0`). |
+| `const std::unordered_map<Key, SymbolEntry, KeyHash>& getAllEntries() const` | Return the full table | Returns a read-only reference to the whole map for GUI display or later phases. The GUI filters by `scope == -1` for the lexer view and by `scope ≥ 0` (grouped by scope ID) for the parser view. |
 | `void clear()` | Reset the table | Removes all entries; called before re-running the lexer on new input. |
 
 ---
@@ -446,7 +458,7 @@ The main lexical analyzer. Reads source code, produces tokens, updates the symbo
 2. If the returned token's lexeme is non-empty, push it into `tokens_`. The empty-lexeme sentinel produced at EOF is discarded here.
 3. Return `tokens_`.
 
-> **Note:** There is no `END_OF_FILE` token appended. The parser uses `isAtEnd()` (checking `pos_ >= tokens_.size()`) to detect the end of the stream.
+> **Note:** There is no `END_OF_FILE` token appended. End-of-stream is signalled structurally by the end of the token vector; downstream consumers detect it by reaching `tokens_.size()` (the parser does this through `TokenStream::eof()`).
 
 ---
 
@@ -505,14 +517,14 @@ This class pre-dates the Qt implementation. Its `run()` prints a placeholder mes
 - Every identifier-shaped name is emitted as `IDENTIFIER` unless it is a reserved keyword, in which case it is emitted with its exact `KW_*` token type.
 - Function names and variable names are **not** separated by the lexer; both remain `IDENTIFIER` and are distinguished later by context.
 - Every token carries exact 1-based `line` and `column` information.
-- The token stream has **no** `END_OF_FILE` token; the parser detects end-of-stream via `isAtEnd()`.
+- The token stream has **no** `END_OF_FILE` token; the parser detects end-of-stream by reaching the end of the token vector (in the parser's `TokenStream::eof()`).
 - Multi-character operators use longest-match (maximal munch), including three-character compound shift-assignment operators (`<<=`, `>>=`).
 - Invalid character sequences are consumed as a unit (maximal munch on the error side too), so `@yz` produces one error token, not `@` plus identifier `yz`.
 - Comments and whitespace are removed cleanly and do not appear as tokens.
 - Lexical recovery continues far enough to still produce as many valid tokens as possible.
 - Tokens are returned in source order without gaps or reordering.
 - Each symbol-table entry is constructed from the identifier token alone; `name` and `line` are derived from that token rather than stored separately.
-- `dataType` and `scope` in `SymbolEntry` are left at their defaults (`""` and `-1`) by the lexer; the parser fills them in.
+- `dataType` and `scope` on the lexer-written `SymbolEntry` are left at their defaults (`""` and `-1`); each lexer entry sits in the `scope = -1` lane of the composite-keyed table. The parser does not mutate these — it inserts its own entries through `SymbolTable::declare()` at real scope keys (`≥ 0`).
 
 ---
 
