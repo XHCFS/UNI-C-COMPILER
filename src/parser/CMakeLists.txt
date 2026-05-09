@@ -1,6 +1,7 @@
 add_library(parser STATIC
     Parser.cpp
     ParseTree.cpp
+    ParseError.cpp
     TokenStream.cpp
 )
 target_include_directories(parser

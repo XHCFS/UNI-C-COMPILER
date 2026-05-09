@@ -1,7 +1,11 @@
 #include "parser/TokenStream.h"
+#include "parser/ParseError.h"
+#include "parser/Parser.h"
 #include "Token.h"
+#include "SymbolTable.h"
 #include <iostream>
 #include <vector>
+#include <string>
 
 static int passed = 0;
 static int failed = 0;
@@ -125,6 +129,54 @@ void testCheckIsPeekOnly() {
     ASSERT_EQ((int)s.peek().getType(), (int)TokenType::KW_INT, "check did not advance");
 }
 
+// ---------- ParseError ----------
+
+void testParseErrorGetters() {
+    ParseError e("expected ';'", 3, 14, ";missing");
+    ASSERT_EQ(e.getMessage(), std::string("expected ';'"), "getMessage returns plain message");
+    ASSERT_EQ(e.getLine(),    3,                            "getLine returns line");
+    ASSERT_EQ(e.getColumn(),  14,                           "getColumn returns column");
+}
+
+void testParseErrorToStringWithText() {
+    ParseError e("expected ';'", 3, 14, "}");
+    ASSERT_EQ(e.toString(),
+              std::string("ParseError [3:14] expected ';' (\"}\")"),
+              "toString includes prefix, location, message, and quoted offending text");
+}
+
+void testParseErrorToStringWithoutText() {
+    ParseError e("unexpected end of file", 7, 1);
+    ASSERT_EQ(e.toString(),
+              std::string("ParseError [7:1] unexpected end of file"),
+              "toString omits parens when offendingText is empty");
+}
+
+void testParseErrorDefaultOffendingText() {
+    // The default-arg form should be equivalent to passing an empty string.
+    ParseError e("missing return type", 1, 1);
+    ASSERT_EQ(e.toString(),
+              std::string("ParseError [1:1] missing return type"),
+              "default-arg ctor produces same toString as explicit empty text");
+}
+
+// ---------- Parser construction ----------
+
+void testParserConstructsWithEmptyStream() {
+    SymbolTable st;
+    std::vector<Token> empty;
+    Parser p(empty, st);
+    ASSERT_EQ(p.getErrors().empty(), true, "fresh parser has no errors");
+}
+
+void testParserConstructsWithTokens() {
+    SymbolTable st;
+    auto toks = sampleTokens();
+    Parser p(toks, st);
+    ASSERT_EQ(p.getErrors().empty(), true, "no errors before any parsing");
+    ASSERT_EQ(p.getErrors().size(),  (size_t)0, "errors list starts empty");
+}
+
 int main() {
     testPeekDoesNotConsume();
     testPeekWithOffset();
@@ -137,6 +189,13 @@ int main() {
     testMatchLeavesCursorOnMiss();
     testMatchAtEofIsFalse();
     testCheckIsPeekOnly();
+
+    testParseErrorGetters();
+    testParseErrorToStringWithText();
+    testParseErrorToStringWithoutText();
+    testParseErrorDefaultOffendingText();
+    testParserConstructsWithEmptyStream();
+    testParserConstructsWithTokens();
 
     std::cout << "\nParser Tests: " << passed << " passed, " << failed << " failed.\n";
     return failed == 0 ? 0 : 1;
