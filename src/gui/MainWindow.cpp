@@ -17,6 +17,9 @@
 #include <QString>
 #include "SymbolTable.h"
 #include "Lexer.h"
+#include "Parser.h"
+#include "ParseError.h"
+#include "Ast.h"
 using namespace std;
 
 // Sets the window title, fixes the initial size, and builds menus, toolbar, and central widget.
@@ -26,10 +29,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     buildMenus();
     buildToolbar();
     buildCentral();
-    statusBar()->showMessage("Ready  |  Open a file or type source, then press F5 to run the lexer.");
+    statusBar()->showMessage("Ready  |  Open a file or type source, F5 = lexer, F6 = lexer + parser.");
 }
 
-// Creates the File menu (Open, Exit) and Lexer menu (Run Lexer, Clear) with keyboard shortcuts.
+// Creates the File menu (Open, Exit) and Analyze menu (Run Lexer, Run Parser, Clear)
+// with keyboard shortcuts.
 void MainWindow::buildMenus() {
     // File menu
     QMenu* fileMenu = menuBar()->addMenu("&File");
@@ -44,19 +48,23 @@ void MainWindow::buildMenus() {
     exitAct->setShortcut(QKeySequence::Quit);
     connect(exitAct, &QAction::triggered, qApp, &QCoreApplication::quit);
 
-    // Lexer menu
-    QMenu* lexMenu = menuBar()->addMenu("&Lexer");
+    // Analyze menu (was "Lexer" — now hosts both phases)
+    QMenu* analyzeMenu = menuBar()->addMenu("&Analyze");
 
-    QAction* runAct = lexMenu->addAction("&Run Lexer");
-    runAct->setShortcut(Qt::Key_F5);
-    connect(runAct, &QAction::triggered, this, &MainWindow::onRunLexer);
+    QAction* runLexAct = analyzeMenu->addAction("&Run Lexer");
+    runLexAct->setShortcut(Qt::Key_F5);
+    connect(runLexAct, &QAction::triggered, this, &MainWindow::onRunLexer);
 
-    QAction* clearAct = lexMenu->addAction("&Clear");
+    QAction* runParAct = analyzeMenu->addAction("Run &Parser");
+    runParAct->setShortcut(Qt::Key_F6);
+    connect(runParAct, &QAction::triggered, this, &MainWindow::onRunParser);
+
+    QAction* clearAct = analyzeMenu->addAction("&Clear");
     clearAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
     connect(clearAct, &QAction::triggered, this, &MainWindow::onClear);
 }
 
-// Adds Open, Run Lexer, and Clear buttons to a non-movable toolbar at the top of the window.
+// Adds Open, Run Lexer, Run Parser, and Clear buttons to a non-movable toolbar.
 void MainWindow::buildToolbar() {
     QToolBar* tb = addToolBar("Main");
     tb->setMovable(false);
@@ -66,14 +74,19 @@ void MainWindow::buildToolbar() {
 
     tb->addSeparator();
 
-    QAction* runAct = tb->addAction("Run Lexer  [F5]");
-    connect(runAct, &QAction::triggered, this, &MainWindow::onRunLexer);
+    QAction* runLexAct = tb->addAction("Run Lexer  [F5]");
+    connect(runLexAct, &QAction::triggered, this, &MainWindow::onRunLexer);
+
+    QAction* runParAct = tb->addAction("Run Parser  [F6]");
+    connect(runParAct, &QAction::triggered, this, &MainWindow::onRunParser);
 
     QAction* clearAct = tb->addAction("Clear");
     connect(clearAct, &QAction::triggered, this, &MainWindow::onClear);
 }
 
-// Creates the monospaced source editor, the LexerPanel, and places them side-by-side in a splitter.
+// Creates the editor on the left and a vertical results splitter on the right
+// containing the LexerPanel (top) and ParserPanel (bottom). Both nested in an
+// outer horizontal splitter.
 void MainWindow::buildCentral() {
     // Source editor
     editor_ = new QPlainTextEdit(this);
@@ -90,22 +103,42 @@ void MainWindow::buildCentral() {
     leftLayout->addWidget(new QLabel("Source", leftWidget));
     leftLayout->addWidget(editor_);
 
-    // Lexer output panel
-    lexerPanel_ = new LexerPanel(this);
+    // Output panels
+    lexerPanel_  = new LexerPanel(this);
+    parserPanel_ = new ParserPanel(this);
 
-    // Horizontal splitter: editor | results
-    auto* splitter = new QSplitter(Qt::Horizontal, this);
-    splitter->addWidget(leftWidget);
-    splitter->addWidget(lexerPanel_);
-    splitter->setStretchFactor(0, 1);
-    splitter->setStretchFactor(1, 1);
-    splitter->setSizes({480, 800});
+    // Inner vertical splitter: lexer panel on top, parser panel on bottom.
+    auto* resultsSplitter = new QSplitter(Qt::Vertical, this);
+    resultsSplitter->addWidget(lexerPanel_);
+    resultsSplitter->addWidget(parserPanel_);
+    resultsSplitter->setStretchFactor(0, 1);
+    resultsSplitter->setStretchFactor(1, 1);
+    resultsSplitter->setSizes({400, 360});
 
-    setCentralWidget(splitter);
+    // Outer horizontal splitter: editor | results.
+    auto* outerSplitter = new QSplitter(Qt::Horizontal, this);
+    outerSplitter->addWidget(leftWidget);
+    outerSplitter->addWidget(resultsSplitter);
+    outerSplitter->setStretchFactor(0, 1);
+    outerSplitter->setStretchFactor(1, 1);
+    outerSplitter->setSizes({480, 800});
+
+    setCentralWidget(outerSplitter);
+}
+
+// Counts entries in the lexer lane (scope == -1) of a composite-keyed SymbolTable.
+// The full table also holds parser-lane entries (scope >= 0) after a Run Parser,
+// which would inflate the "identifiers seen by the lexer" count.
+static size_t lexerLaneCount(const SymbolTable& table) {
+    size_t n = 0;
+    for (const auto& [key, entry] : table.getAllEntries())
+        if (key.scope == -1) ++n;
+    return n;
 }
 
 // Reads source from the editor, constructs a fresh SymbolTable and Lexer, runs tokenize(),
-// forwards all results to LexerPanel, and updates the status bar with counts.
+// forwards all results to LexerPanel, and updates the status bar with counts. Leaves the
+// ParserPanel untouched — F5 is the lexer-only run.
 void MainWindow::onRunLexer() {
     const string src = editor_->toPlainText().toStdString();
     if (src.empty()) {
@@ -115,7 +148,7 @@ void MainWindow::onRunLexer() {
 
     SymbolTable table;
     Lexer lexer(src, table);
-    const vector<Token>      tokens = lexer.tokenize();
+    const vector<Token>       tokens = lexer.tokenize();
     const vector<LexerError>& errors = lexer.getErrors();
 
     lexerPanel_->showResults(tokens, table, errors);
@@ -123,14 +156,50 @@ void MainWindow::onRunLexer() {
     statusBar()->showMessage(
         QString("%1 token(s)  |  %2 identifier(s)  |  %3 error(s)")
             .arg(tokens.size())
-            .arg(table.getAllEntries().size())
+            .arg(lexerLaneCount(table))
             .arg(errors.size()));
 }
 
-// Resets both the source editor and the LexerPanel to their empty initial state.
+// Full source -> tokens -> AST pipeline (F6). Runs the lexer first, forwards
+// results to LexerPanel, then runs the parser over the same token vector and
+// SymbolTable, forwards to ParserPanel. Lexer errors do NOT abort the parser —
+// the parser is given whatever token vector the lexer produced, so the user
+// can see partial parser output alongside lexer errors.
+void MainWindow::onRunParser() {
+    const string src = editor_->toPlainText().toStdString();
+    if (src.empty()) {
+        statusBar()->showMessage("Nothing to analyze.");
+        return;
+    }
+
+    // --- Lexer phase ---
+    SymbolTable table;
+    Lexer lexer(src, table);
+    const vector<Token>       tokens   = lexer.tokenize();
+    const vector<LexerError>& lexErrs  = lexer.getErrors();
+    lexerPanel_->showResults(tokens, table, lexErrs);
+
+    // --- Parser phase (same SymbolTable: lexer wrote scope=-1, parser writes scope>=0) ---
+    Parser parser(tokens, table);
+    auto                       ast      = parser.parse();
+    const vector<ParseError>&  parErrs  = parser.getErrors();
+    parserPanel_->showResults(ast.get(), parErrs);
+
+    int declCount = ast ? static_cast<int>(ast->getDecls().size()) : 0;
+    statusBar()->showMessage(
+        QString("%1 token(s)  |  %2 identifier(s)  |  %3 lex err  |  %4 decl(s)  |  %5 parse err")
+            .arg(tokens.size())
+            .arg(lexerLaneCount(table))
+            .arg(lexErrs.size())
+            .arg(declCount)
+            .arg(parErrs.size()));
+}
+
+// Resets the source editor and BOTH output panels to their empty initial state.
 void MainWindow::onClear() {
     editor_->clear();
     lexerPanel_->clear();
+    parserPanel_->clear();
     statusBar()->showMessage("Cleared.");
 }
 
