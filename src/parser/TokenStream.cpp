@@ -1,4 +1,4 @@
-    #include "TokenStream.h"
+#include "TokenStream.h"
 using namespace std;
 
 // Builds the sentinel Token returned past end of stream. Carries the line/col

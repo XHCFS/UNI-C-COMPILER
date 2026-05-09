@@ -1,7 +1,7 @@
 #pragma once
 #include "Token.h"
 #include "SymbolTable.h"
-#include "ParseTree.h"
+#include "Ast.h"
 #include <vector>
 #include <string>
 using namespace std;
@@ -23,6 +23,6 @@ private:
                          const vector<string>& errors);
 
     // Displays the parser output — the parse tree and any parse errors — to the UI.
-    void showParserOutput(const ParseNode* tree,
+    void showParserOutput(const TranslationUnit* tree,
                           const vector<string>& errors);
 };

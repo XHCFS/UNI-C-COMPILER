@@ -30,10 +30,10 @@ void GUI::showLexerOutput(const vector<Token>& tokens,
 }
 
 // Prints the parse tree and any parser errors to stdout as a temporary substitute for a real tree view.
-void GUI::showParserOutput(const ParseNode* tree,
+void GUI::showParserOutput(const TranslationUnit* tree,
                            const vector<string>& errors) {
     cout << "\n--- Parse Tree ---\n";
-    printParseTree(tree);
+    if (tree) tree->dump(cout, 0);
     if (!errors.empty()) {
         cout << "--- Parser Errors ---\n";
         for (const auto& e : errors) cout << e << "\n";
