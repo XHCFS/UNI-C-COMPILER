@@ -1,32 +1,33 @@
 #pragma once
-#include <string>
+#include "SymbolEntry.h"
 #include <unordered_map>
-#include <vector>
-#include <optional>
+#include <string>
+using namespace std;
 
-enum class SymbolKind { VARIABLE, FUNCTION, PARAMETER };
-
-struct Symbol {
-    std::string name;
-    std::string dataType;
-    SymbolKind  kind;
-    int         scopeLevel;
-    int         lineNumber;
-};
-
+// Flat hash-map of every user-defined identifier seen during lexing.
+// Scope resolution is deferred to the parser phase.
 class SymbolTable {
 public:
-    void enterScope();
-    void exitScope();
+    // Constructs an empty symbol table.
+    SymbolTable();
 
-    bool   insert(const Symbol& symbol);
-    std::optional<Symbol> lookup(const std::string& name) const;
+    // Inserts a new entry keyed on token.getLexeme().
+    // Returns true on success, false if the name is already present.
+    bool insert(const Token& token);
 
-    void print() const;
-    int  currentScope() const { return scopeLevel_; }
+    // Returns true if an entry with the given name exists in the table.
+    bool exists(const string& name) const;
+
+    // Returns a pointer to the entry for the given name, or nullptr if not found.
+    SymbolEntry*  find(const string& name);
+
+    // Returns a read-only view of all entries for iteration (e.g. populating the GUI table).
+    const unordered_map<string, SymbolEntry>& getAllEntries() const;
+
+    // Removes all entries from the table.
+    void clear();
 
 private:
-    // Each scope is a map from name -> Symbol
-    std::vector<std::unordered_map<std::string, Symbol>> scopes_;
-    int scopeLevel_ = 0;
+    // Maps each identifier name to its SymbolEntry.
+    unordered_map<string, SymbolEntry> entries_;
 };

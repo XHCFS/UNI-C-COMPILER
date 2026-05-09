@@ -1,36 +1,41 @@
 #include "GUI.h"
 #include <iostream>
+using namespace std;
 
-// TODO: Replace terminal output with actual GUI implementation.
-
+// No-op constructor; all setup will move to a real GUI init when implemented.
 GUI::GUI() {}
 
+// Prints a placeholder banner to stdout; will launch the event loop once the GUI is implemented.
 void GUI::run() {
-    std::cout << "C Compiler - Lexer & Parser\n";
-    std::cout << "GUI not yet implemented. See GUI.h for interface.\n";
+    cout << "C Compiler - Lexer & Parser\n";
+    cout << "GUI not yet implemented. See GUI.h for interface.\n";
 }
 
-void GUI::showLexerOutput(const std::vector<Token>& tokens,
+// Dumps tokens, symbol-table entries, and errors to stdout as a temporary substitute for real UI panels.
+void GUI::showLexerOutput(const vector<Token>& tokens,
                           const SymbolTable& table,
-                          const std::vector<std::string>& errors) {
-    std::cout << "\n--- Tokens ---\n";
+                          const vector<string>& errors) {
+    cout << "\n--- Tokens ---\n";
     for (const auto& tok : tokens) {
-        std::cout << "[" << tokenTypeToString(tok.type) << "] "
-                  << tok.lexeme << "  (line " << tok.line << ")\n";
+        cout << "[" << tokenTypeToString(tok.getType()) << "] "
+                  << tok.getLexeme() << "  (line " << tok.getLine() << ")\n";
     }
-    table.print();
+    cout << "\n--- Symbol Table ---\n";
+    for (const auto& [name, entry] : table.getAllEntries())
+        cout << name << "  (line " << entry.getLine() << ")\n";
     if (!errors.empty()) {
-        std::cout << "--- Lexer Errors ---\n";
-        for (const auto& e : errors) std::cout << e << "\n";
+        cout << "--- Lexer Errors ---\n";
+        for (const auto& e : errors) cout << e << "\n";
     }
 }
 
+// Prints the parse tree and any parser errors to stdout as a temporary substitute for a real tree view.
 void GUI::showParserOutput(const ParseNode* tree,
-                           const std::vector<std::string>& errors) {
-    std::cout << "\n--- Parse Tree ---\n";
+                           const vector<string>& errors) {
+    cout << "\n--- Parse Tree ---\n";
     printParseTree(tree);
     if (!errors.empty()) {
-        std::cout << "--- Parser Errors ---\n";
-        for (const auto& e : errors) std::cout << e << "\n";
+        cout << "--- Parser Errors ---\n";
+        for (const auto& e : errors) cout << e << "\n";
     }
 }

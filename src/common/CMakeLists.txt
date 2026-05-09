@@ -1,5 +1,6 @@
 add_library(common STATIC
     Token.cpp
+    SymbolEntry.cpp
     SymbolTable.cpp
 )
 target_include_directories(common

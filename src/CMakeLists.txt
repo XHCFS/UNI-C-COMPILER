@@ -11,5 +11,6 @@ target_link_libraries(ccompiler
         lexer
         parser
         gui
+        Qt${QT_VERSION_MAJOR}::Widgets
 )
 target_include_directories(ccompiler PRIVATE ${CMAKE_SOURCE_DIR}/src)
