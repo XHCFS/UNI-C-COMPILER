@@ -57,3 +57,6 @@ bool TokenStream::match(TokenType expected) {
 bool TokenStream::check(TokenType expected) const {
     return peek().getType() == expected;
 }
+
+// Returns the current cursor index (for forward-progress checks in callers).
+size_t TokenStream::getPos() const { return pos_; }

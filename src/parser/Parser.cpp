@@ -309,10 +309,19 @@ unique_ptr<Expr> Parser::parsePrimary() {
         return inner;   // structural grouping; no ParenExpr wrapper
     }
 
-    // Anything else cannot start an expression. Record an error, skip one
-    // token to make forward progress, and return null.
+    // Anything else cannot start an expression. Record an error, then make
+    // forward progress by skipping one token — but ONLY if the offending
+    // token isn't terminator-shaped. Eating a ';', ')', ']', ',' or '}' here
+    // would strip the surrounding statement / paren-group / arg-list / block
+    // of its expected boundary marker and produce a cascading "expected ;"
+    // (or similar) at the next layer up. Leaving terminators in place lets
+    // the parent production hit its expected boundary cleanly.
     addError("expected expression", line, col, tok.getLexeme());
-    if (!input_.eof()) input_.get();
+    bool isTerminator =
+        t == TokenType::SEMICOLON || t == TokenType::RPAREN  ||
+        t == TokenType::RBRACKET  || t == TokenType::COMMA   ||
+        t == TokenType::RBRACE;
+    if (!input_.eof() && !isTerminator) input_.get();
     return nullptr;
 }
 
@@ -663,20 +672,25 @@ vector<unique_ptr<Decl>> Parser::parseExternalDeclaration() {
 // scope. Reports redeclaration on same-(scope, name). Does NOT consume ';'
 // — the caller does, since multiple parseVarDecl calls in a comma chain share
 // one terminator.
+//
+// If name is empty, parseDeclarator already recorded "expected identifier in
+// declarator" — we still consume the optional initializer to keep the cursor
+// in sync (so the trailing ';' is reachable), but we return nullptr instead
+// of producing a phantom VarDecl with an empty name in the AST.
 unique_ptr<VarDecl> Parser::parseVarDecl(Type type, string name, int line, int col) {
     unique_ptr<Expr> init;
     if (input_.match(TokenType::ASSIGN)) {
         init = parseExpression();
     }
 
+    if (name.empty()) return nullptr;
+
     // Synthesize a Token from the captured name/line/col so SymbolTable::declare
     // gets a SymbolEntry built around an identifier-shaped token. SymbolEntry
     // only reads the lexeme, line, and column from its token, so this works.
-    if (!name.empty()) {
-        Token nameTok(TokenType::IDENTIFIER, name, line, col);
-        if (!symbolTable_.declare(nameTok, scopeStack_.back(), type.toString())) {
-            addError("redeclaration of '" + name + "'", line, col, name);
-        }
+    Token nameTok(TokenType::IDENTIFIER, name, line, col);
+    if (!symbolTable_.declare(nameTok, scopeStack_.back(), type.toString())) {
+        addError("redeclaration of '" + name + "'", line, col, name);
     }
 
     return make_unique<VarDecl>(line, col, move(type), move(name), move(init));
@@ -687,9 +701,13 @@ unique_ptr<VarDecl> Parser::parseVarDecl(Type type, string name, int line, int c
 // and body (per C99 6.2.1). Inlines the brace handling around parseBlockItems
 // rather than calling parseCompoundStmt — because parseCompoundStmt would push
 // yet another scope, which would isolate the body from the parameters.
+//
+// If name is empty, parseDeclarator already recorded the missing-identifier
+// error. We still parse params and body to keep the cursor in sync, but we
+// return nullptr to avoid putting a phantom unnamed FunctionDecl in the AST.
 unique_ptr<FunctionDecl> Parser::parseFunctionDecl(Type returnType, string name,
                                                     int line, int col) {
-    // Declare the function at the outer scope.
+    // Declare the function at the outer scope (only when we have a name).
     if (!name.empty()) {
         Token funcTok(TokenType::IDENTIFIER, name, line, col);
         if (!symbolTable_.declare(funcTok, scopeStack_.back(), returnType.toString())) {
@@ -710,6 +728,8 @@ unique_ptr<FunctionDecl> Parser::parseFunctionDecl(Type returnType, string name,
     expect(TokenType::RBRACE, "expected '}' to close function body");
 
     scopeStack_.pop_back();
+
+    if (name.empty()) return nullptr;
 
     return make_unique<FunctionDecl>(line, col, move(returnType), move(name),
                                       move(params), move(body));
@@ -758,19 +778,35 @@ vector<unique_ptr<ParamDecl>> Parser::parseParamList() {
 }
 
 // Top-level entry. Allocates the TranslationUnit and loops parseExternalDeclaration
-// until EOF. On a production that returned no Decls (unrecoverable error path),
-// synchronises and continues so one bad declaration doesn't abort the whole parse.
+// until EOF.
+//
+// Recovery contract: parseExternalDeclaration handles its own recovery within a
+// declaration (e.g., consumes the trailing ';' of a malformed declarator). We
+// only call synchronize() at this level when the production reported an error
+// AND made no forward progress at all — that's the "stuck on a token we can't
+// parse and can't skip" case. Synchronizing when the production DID consume
+// input would over-eat the next valid declaration.
+//
+// Forward-progress invariant: if neither the production nor synchronize() moved
+// the cursor, force-consume one token so we can never spin.
 unique_ptr<TranslationUnit> Parser::parse() {
     auto tu = make_unique<TranslationUnit>(1, 1);
     while (!input_.eof()) {
-        size_t before = errors_.size();
+        size_t posBefore = input_.getPos();
+        size_t errBefore = errors_.size();
+
         auto decls = parseExternalDeclaration();
         for (auto& d : decls)
             if (d) tu->addDecl(move(d));
-        // If nothing was produced AND no progress through expect/error, force a
-        // resync to make sure we don't spin forever on garbage input.
-        if (decls.empty() && errors_.size() > before) {
+
+        bool madeProgress = (input_.getPos() != posBefore);
+        if (!madeProgress && errors_.size() > errBefore) {
             synchronize();
+        }
+
+        // Final forward-progress safety net.
+        if (input_.getPos() == posBefore && !input_.eof()) {
+            input_.get();
         }
     }
     return tu;

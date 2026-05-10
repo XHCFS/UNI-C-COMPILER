@@ -15,6 +15,11 @@
 #include <QFile>
 #include <QTextStream>
 #include <QString>
+#include <QIcon>
+#include <QPixmap>
+#include <QPainter>
+#include <QRadialGradient>
+#include <QRect>
 #include "SymbolTable.h"
 #include "Lexer.h"
 #include "Parser.h"
@@ -22,9 +27,42 @@
 #include "Ast.h"
 using namespace std;
 
-// Sets the window title, fixes the initial size, and builds menus, toolbar, and central widget.
+namespace {
+    // Builds the application icon programmatically: a bold white 'C' on a blue
+    // radial-gradient rounded square. Generated at 256x256; Qt rescales it
+    // automatically for the title bar / taskbar / alt-tab thumbnails.
+    QIcon makeAppIcon() {
+        const int size = 256;
+        QPixmap pix(size, size);
+        pix.fill(Qt::transparent);
+
+        QPainter p(&pix);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+
+        // Background: rounded square with a subtle radial gradient.
+        QRadialGradient grad(size * 0.35, size * 0.30, size * 0.85);
+        grad.setColorAt(0.0, QColor(70, 140, 220));
+        grad.setColorAt(1.0, QColor(20, 60, 130));
+        p.setBrush(grad);
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(0, 0, size, size, size * 0.18, size * 0.18);
+
+        // Foreground: bold white 'C', centred.
+        QFont font("Arial", static_cast<int>(size * 0.62), QFont::Bold);
+        p.setFont(font);
+        p.setPen(Qt::white);
+        p.drawText(QRect(0, 0, size, size), Qt::AlignCenter, "C");
+
+        return QIcon(pix);
+    }
+}
+
+// Sets the window title and icon, fixes the initial size, and builds menus,
+// toolbar, and central widget.
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Lexer");
+    setWindowIcon(makeAppIcon());
     resize(1280, 760);
     buildMenus();
     buildToolbar();

@@ -40,6 +40,11 @@ public:
     // True iff peek().getType() == expected. Does not consume.
     bool check(TokenType expected) const;
 
+    // Returns the current cursor index. Used by callers (e.g. Parser::parse)
+    // to detect whether a recursive descent step actually consumed input —
+    // critical for forward-progress guarantees on garbage input.
+    size_t getPos() const;
+
 private:
     const vector<Token>& tokens_;       // non-owning reference to the lexer's output
     size_t pos_;          // index of the next token to be read

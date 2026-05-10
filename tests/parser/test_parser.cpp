@@ -7,6 +7,7 @@
 #include "Type.h"
 #include "Ast.h"
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <vector>
 #include <string>
@@ -1036,6 +1037,82 @@ void testParseErrorMissingDeclaratorIdentifier() {
               "missing identifier in declarator is reported");
 }
 
+// ---------- Fixture-driven end-to-end tests ----------
+// These load the .c files in tests/parser/ and exercise the full
+// lexer -> parser pipeline. PARSER_FIXTURES_DIR is set by CMake at build time.
+
+#ifndef PARSER_FIXTURES_DIR
+#define PARSER_FIXTURES_DIR "."
+#endif
+
+static string loadFixture(const string& filename) {
+    string path = string(PARSER_FIXTURES_DIR) + "/" + filename;
+    ifstream f(path);
+    if (!f) {
+        cerr << "FAIL: cannot open fixture: " << path << "\n";
+        return "";
+    }
+    stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+// Drives lexer + parser on the named fixture; writes counts into outLexErrs /
+// outParseErrs / outDeclCount; returns true if the file loaded.
+static bool runFixture(const string& filename,
+                       int& outLexErrs, int& outParseErrs, int& outDeclCount) {
+    string src = loadFixture(filename);
+    if (src.empty()) return false;
+
+    SymbolTable st;
+    Lexer lex(src, st);
+    auto tokens = lex.tokenize();
+    outLexErrs = (int)lex.getErrors().size();
+
+    Parser parser(tokens, st);
+    auto ast = parser.parse();
+    outParseErrs = (int)parser.getErrors().size();
+    outDeclCount = ast ? (int)ast->getDecls().size() : 0;
+    return true;
+}
+
+void testFixtureDeclarationsParsesClean() {
+    int lexE, parE, decls;
+    bool ok = runFixture("declarations.c", lexE, parE, decls);
+    ASSERT_EQ(ok,    true, "declarations.c loads from fixtures dir");
+    ASSERT_EQ(lexE,  0,    "declarations.c: zero lexer errors");
+    ASSERT_EQ(parE,  0,    "declarations.c: zero parser errors");
+    ASSERT_EQ(decls > 0, true, "declarations.c: produces top-level decls");
+}
+
+void testFixtureExpressionsParsesClean() {
+    int lexE, parE, decls;
+    bool ok = runFixture("expressions.c", lexE, parE, decls);
+    ASSERT_EQ(ok,    true, "expressions.c loads from fixtures dir");
+    ASSERT_EQ(lexE,  0,    "expressions.c: zero lexer errors");
+    ASSERT_EQ(parE,  0,    "expressions.c: zero parser errors");
+    ASSERT_EQ(decls > 0, true, "expressions.c: produces top-level decls");
+}
+
+void testFixtureStatementsParsesClean() {
+    int lexE, parE, decls;
+    bool ok = runFixture("statements.c", lexE, parE, decls);
+    ASSERT_EQ(ok,    true, "statements.c loads from fixtures dir");
+    ASSERT_EQ(lexE,  0,    "statements.c: zero lexer errors");
+    ASSERT_EQ(parE,  0,    "statements.c: zero parser errors");
+    ASSERT_EQ(decls > 0, true, "statements.c: produces top-level decls");
+}
+
+void testFixtureErrorsReportsErrors() {
+    int lexE, parE, decls;
+    bool ok = runFixture("errors.c", lexE, parE, decls);
+    ASSERT_EQ(ok,           true, "errors.c loads from fixtures dir");
+    ASSERT_EQ(parE >= 1,    true, "errors.c: at least one parse error reported");
+    // The fixture is intentionally malformed but the parser must still return
+    // a non-null AST root and produce SOMETHING — validating recovery.
+    ASSERT_EQ(decls >= 1,   true, "errors.c: parser still produced decls despite errors");
+}
+
 // End-to-end: a TranslationUnit holding a FunctionDecl that holds a CompoundStmt
 // with a ReturnStmt of a LiteralExpr — exercise composition + indentation.
 void testTranslationUnitFunctionDeclEndToEnd() {
@@ -1161,6 +1238,11 @@ int main() {
     testSymbolTableSameScopeRedeclaration();
     testParseErrorMissingSemiInDecl();
     testParseErrorMissingDeclaratorIdentifier();
+
+    testFixtureDeclarationsParsesClean();
+    testFixtureExpressionsParsesClean();
+    testFixtureStatementsParsesClean();
+    testFixtureErrorsReportsErrors();
 
     cout << "\nParser Tests: " << passed << " passed, " << failed << " failed.\n";
     return failed == 0 ? 0 : 1;
