@@ -1,5 +1,8 @@
 name: CI
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches: [ "main", "dev", "feature/**", "fix/**" ]
@@ -32,11 +35,11 @@ jobs:
 
       - name: Install Qt6 (Windows)
         if: runner.os == 'Windows'
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.*'
           arch: win64_msvc2019_64
-          cache: true
+          cache: false
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release

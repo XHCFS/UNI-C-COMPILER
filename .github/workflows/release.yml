@@ -1,6 +1,8 @@
 name: Release
 
-# One rolling release only: tag `continuous` is recreated and overwritten on each run.
+# One rolling release: tag `continuous` is recreated on each run.
+# Linux and Windows are separate jobs so a Windows failure (cache/Qt) still
+# publishes the Linux build and creates the GitHub Release.
 on:
   push:
     branches: [main]
@@ -9,41 +11,26 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: rolling-release
   cancel-in-progress: true
 
 jobs:
-  build-release:
-    name: Build Release (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact_name: ccompiler-linux-x86_64
-            binary_path: build/bin/ccompiler
-          - os: windows-latest
-            artifact_name: ccompiler-windows-x86_64
-            binary_path: build/Release/ccompiler.exe
+  build-linux:
+    name: Build Release (ubuntu-latest)
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies (Ubuntu)
-        if: runner.os == 'Linux'
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake build-essential qt6-base-dev libgl-dev
-
-      - name: Install Qt6 (Windows)
-        if: runner.os == 'Windows'
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: '6.7.*'
-          arch: win64_msvc2019_64
-          cache: true
 
       - name: Configure CMake (Release)
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -55,67 +42,109 @@ jobs:
         working-directory: build
         run: ctest --output-on-failure -C Release
 
-      - name: Package (Linux)
-        if: runner.os == 'Linux'
+      - name: Package
         run: |
           mkdir -p dist
           cp build/bin/ccompiler dist/ccompiler
           cp README.md dist/ 2>/dev/null || true
-          tar -czf ${{ matrix.artifact_name }}.tar.gz -C dist .
+          tar -czf ccompiler-linux-x86_64.tar.gz -C dist .
 
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccompiler-linux-x86_64
+          path: ccompiler-linux-x86_64.tar.gz
+
+  build-windows:
+    name: Build Release (windows-latest)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Avoid flaky GitHub cache 400s during outages; v4 defaults cache off.
+      - name: Install Qt6 (Windows)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          arch: win64_msvc2019_64
+          cache: false
+
+      - name: Configure CMake (Release)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Run tests before packaging
+        working-directory: build
+        run: ctest --output-on-failure -C Release
+
+      - name: Package
         run: |
           mkdir dist
           copy build\Release\ccompiler.exe dist\ccompiler.exe
-          Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact_name }}.zip
+          Compress-Archive -Path dist\* -DestinationPath ccompiler-windows-x86_64.zip
         shell: pwsh
 
-      - name: Upload release artifact (Linux)
-        if: runner.os == 'Linux'
+      - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.tar.gz
-
-      - name: Upload release artifact (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.zip
+          name: ccompiler-windows-x86_64
+          path: ccompiler-windows-x86_64.zip
 
   publish-rolling-release:
     name: Publish rolling GitHub Release
-    needs: build-release
+    needs: [build-linux, build-windows]
+    if: always() && needs.build-linux.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download build artifacts
+      - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
+          name: ccompiler-linux-x86_64
           path: release-assets
 
-      - name: Create single rolling release (always replaces the same one)
+      - name: Download Windows artifact
+        id: win_zip
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ccompiler-windows-x86_64
+          path: release-assets
+
+      - name: Create single rolling release (replaces the same one)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eux
           mapfile -t ASSETS < <(find release-assets -type f \( -name '*.tar.gz' -o -name '*.zip' \) | sort)
           if [ "${#ASSETS[@]}" -eq 0 ]; then
-            echo "No packaged assets found under release-assets/" >&2
+            echo "No packaged assets found" >&2
             exit 1
           fi
-          gh release delete continuous --repo "${{ github.repository }}" --yes 2>/dev/null || true
           {
             echo "Automated rolling build from commit \`${{ github.sha }}\` on branch \`${{ github.ref_name }}\`."
+            if [ "${{ steps.win_zip.outcome }}" != "success" ]; then
+              echo
+              echo "> Windows build artifact was not available for this run (see the **Build Release (windows-latest)** job)."
+            fi
             echo
             echo "## Downloads"
             echo "| Platform | Asset |"
             echo "|----------|-------|"
-            echo "| Linux x86_64 | \`ccompiler-linux-x86_64.tar.gz\` |"
-            echo "| Windows x86_64 | \`ccompiler-windows-x86_64.zip\` |"
+            for f in "${ASSETS[@]}"; do
+              b=$(basename "$f")
+              case "$b" in
+                *linux*) echo "| Linux x86_64 | \`$b\` |" ;;
+                *windows*) echo "| Windows x86_64 | \`$b\` |" ;;
+                *) echo "| (other) | \`$b\` |" ;;
+              esac
+            done
           } > release-notes.md
+          gh release delete continuous --repo "${{ github.repository }}" --yes 2>/dev/null || true
           gh release create continuous \
             --repo "${{ github.repository }}" \
             --title "UNI-C Compiler (continuous)" \
