@@ -1,12 +1,17 @@
 name: Release
 
+# One rolling release only: tag `continuous` is recreated and overwritten on each run.
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: rolling-release
+  cancel-in-progress: true
 
 jobs:
   build-release:
@@ -66,52 +71,54 @@ jobs:
           Compress-Archive -Path dist\* -DestinationPath ${{ matrix.artifact_name }}.zip
         shell: pwsh
 
-      - name: Upload release asset (Linux)
+      - name: Upload release artifact (Linux)
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_name }}.tar.gz
 
-      - name: Upload release asset (Windows)
+      - name: Upload release artifact (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_name }}.zip
 
-  create-github-release:
-    name: Create GitHub Release
+  publish-rolling-release:
+    name: Publish rolling GitHub Release
     needs: build-release
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: "Release ${{ github.ref_name }}"
-          body: |
-            ## CIE 461 Compiler — ${{ github.ref_name }}
-
-            Automated release built from tag `${{ github.ref_name }}`.
-
-            ### Downloads
-            | Platform | File |
-            |----------|------|
-            | Linux x86_64  | `ccompiler-linux-x86_64.tar.gz`   |
-            | Windows x86_64| `ccompiler-windows-x86_64.zip`    |
-
-            ### Changelog
-            See commit history for changes since the previous release.
-          files: release-assets/**/*
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+      - name: Create single rolling release (always replaces the same one)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          mapfile -t ASSETS < <(find release-assets -type f \( -name '*.tar.gz' -o -name '*.zip' \) | sort)
+          if [ "${#ASSETS[@]}" -eq 0 ]; then
+            echo "No packaged assets found under release-assets/" >&2
+            exit 1
+          fi
+          gh release delete continuous --repo "${{ github.repository }}" --yes 2>/dev/null || true
+          {
+            echo "Automated rolling build from commit \`${{ github.sha }}\` on branch \`${{ github.ref_name }}\`."
+            echo
+            echo "## Downloads"
+            echo "| Platform | Asset |"
+            echo "|----------|-------|"
+            echo "| Linux x86_64 | \`ccompiler-linux-x86_64.tar.gz\` |"
+            echo "| Windows x86_64 | \`ccompiler-windows-x86_64.zip\` |"
+          } > release-notes.md
+          gh release create continuous \
+            --repo "${{ github.repository }}" \
+            --title "UNI-C Compiler (continuous)" \
+            --notes-file release-notes.md \
+            --target "${{ github.sha }}" \
+            "${ASSETS[@]}"
