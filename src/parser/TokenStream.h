@@ -45,6 +45,14 @@ public:
     // critical for forward-progress guarantees on garbage input.
     size_t getPos() const;
 
+    // Rewinds/advances the cursor (used when the parser backtracks on ambiguity).
+    void setPos(size_t pos);
+
+    // True iff peek() is '(' and the matching ')' is followed by ';' (balanced
+    // parens; only LPAREN/RPAREN tokens affect depth). Used to tell a call-like
+    // `id ( ... ) ;` from `id ( ... ) {` at file scope.
+    bool matchingParenThenSemicolon() const;
+
 private:
     const vector<Token>& tokens_;       // non-owning reference to the lexer's output
     size_t pos_;          // index of the next token to be read

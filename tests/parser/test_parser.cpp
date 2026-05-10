@@ -136,6 +136,19 @@ void testCheckIsPeekOnly() {
     ASSERT_EQ((int)s.peek().getType(), (int)TokenType::KW_INT, "check did not advance");
 }
 
+void testMatchingParenThenSemicolon() {
+    vector<Token> toks = {
+        Token(TokenType::IDENTIFIER,     "printf", 1, 1),
+        Token(TokenType::LPAREN,         "(",      1, 7),
+        Token(TokenType::STRING_LITERAL, "\"hi\"", 1, 8),
+        Token(TokenType::RPAREN,         ")",      1, 12),
+        Token(TokenType::SEMICOLON,      ";",      1, 13),
+    };
+    TokenStream s(toks);
+    (void)s.get();   // at '('
+    ASSERT_EQ(s.matchingParenThenSemicolon(), true, "...) ; after identifier");
+}
+
 // ---------- ParseError ----------
 
 void testParseErrorGetters() {
@@ -886,6 +899,16 @@ void testParseLongLong() {
               "long long collapses to long");
 }
 
+// Regression: `identifier ( ... ) ;` at file scope with no type specifier must
+// not be mis-parsed as a function definition (would spin inside the bogus body).
+void testParseFileScopeCallLikePrintf() {
+    ASSERT_EQ(parseTuDump(R"(printf("hello");)"),
+              string("TranslationUnit\n"),
+              "file-scope call: empty TU, tokens consumed");
+    ASSERT_EQ(parseTuErrorCount(R"(printf("hello");)") >= 1, true,
+              "file-scope expression reports at least one parse error");
+}
+
 void testParseFunctionEmptyParams() {
     ASSERT_EQ(parseTuDump("int main() { return 0; }"),
               string("TranslationUnit\n"
@@ -1153,6 +1176,7 @@ int main() {
     testMatchLeavesCursorOnMiss();
     testMatchAtEofIsFalse();
     testCheckIsPeekOnly();
+    testMatchingParenThenSemicolon();
 
     testParseErrorGetters();
     testParseErrorToStringWithText();
@@ -1227,6 +1251,7 @@ int main() {
     testParseStorageClassDiscarded();
     testParseUnsignedDiscarded();
     testParseLongLong();
+    testParseFileScopeCallLikePrintf();
     testParseFunctionEmptyParams();
     testParseFunctionVoidParams();
     testParseFunctionNamedParams();
