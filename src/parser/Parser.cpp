@@ -376,6 +376,7 @@ unique_ptr<CompoundStmt> Parser::parseCompoundStmt() {
 unique_ptr<CompoundStmt> Parser::parseBlockItems(int line, int col) {
     auto block = make_unique<CompoundStmt>(line, col);
     while (!input_.eof() && input_.peek().getType() != TokenType::RBRACE) {
+        size_t before = input_.getPos();
         if (isDeclarationStart(input_.peek().getType())) {
             auto decls = parseExternalDeclaration();
             for (auto& d : decls)
@@ -383,6 +384,12 @@ unique_ptr<CompoundStmt> Parser::parseBlockItems(int line, int col) {
         } else {
             auto stmt = parseStatement();
             if (stmt) block->addItem(move(stmt));
+        }
+        // Same contract as Parser::parse(): never spin if recovery left the
+        // cursor unchanged (expr stmt that ate nothing before a stray ')', etc.).
+        if (input_.getPos() == before && !input_.eof()
+            && input_.peek().getType() != TokenType::RBRACE) {
+            input_.get();
         }
     }
     return block;
@@ -634,6 +641,7 @@ vector<unique_ptr<Decl>> Parser::parseExternalDeclaration() {
     int col  = input_.peek().getColumn();
 
     Type baseType = parseDeclSpecifiers();
+    const size_t afterSpecifiers = input_.getPos();
 
     // First declarator
     Type firstType = baseType;
@@ -644,6 +652,19 @@ vector<unique_ptr<Decl>> Parser::parseExternalDeclaration() {
 
     // Function definition: declarator immediately followed by '('
     if (input_.peek().getType() == TokenType::LPAREN) {
+        // With no type specifier the "declaration" has kind INVALID. A pattern
+        // like `printf("hello");` is a call expression at file scope / implicit
+        // int typo — not `implicit-int foo() { }` (body follows ')' with '{').
+        if (baseType.getKind() == TypeKind::INVALID
+            && input_.matchingParenThenSemicolon()) {
+            input_.setPos(afterSpecifiers);
+            addError("expression cannot appear at file scope (only declarations "
+                     "and function definitions are valid here)",
+                    line, col, firstName);
+            (void)parseExpression();
+            expect(TokenType::SEMICOLON, "expected ';' after expression");
+            return {};
+        }
         auto fn = parseFunctionDecl(move(firstType), move(firstName), line, col);
         if (fn) result.push_back(move(fn));
         return result;

@@ -60,3 +60,28 @@ bool TokenStream::check(TokenType expected) const {
 
 // Returns the current cursor index (for forward-progress checks in callers).
 size_t TokenStream::getPos() const { return pos_; }
+
+void TokenStream::setPos(size_t pos) {
+    pos_ = pos > tokens_.size() ? tokens_.size() : pos;
+}
+
+bool TokenStream::matchingParenThenSemicolon() const {
+    if (pos_ >= tokens_.size() || tokens_[pos_].getType() != TokenType::LPAREN)
+        return false;
+    int depth = 0;
+    for (size_t i = pos_; i < tokens_.size(); ++i) {
+        TokenType t = tokens_[i].getType();
+        if (t == TokenType::LPAREN)
+            ++depth;
+        else if (t == TokenType::RPAREN) {
+            --depth;
+            if (depth == 0) {
+                if (i + 1 < tokens_.size()
+                    && tokens_[i + 1].getType() == TokenType::SEMICOLON)
+                    return true;
+                return false;
+            }
+        }
+    }
+    return false;
+}
