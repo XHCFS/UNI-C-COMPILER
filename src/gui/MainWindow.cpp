@@ -61,7 +61,7 @@ namespace {
 // Sets the window title and icon, fixes the initial size, and builds menus,
 // toolbar, and central widget.
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle("Lexer");
+    setWindowTitle("C Compiler");
     setWindowIcon(makeAppIcon());
     resize(1280, 760);
     buildMenus();
@@ -257,6 +257,6 @@ void MainWindow::onOpenFile() {
     }
 
     editor_->setPlainText(QTextStream(&file).readAll());
-    setWindowTitle("UNI-C Compiler  -  " + QFileInfo(path).fileName());
+    setWindowTitle("C Compiler  -  " + QFileInfo(path).fileName());
     statusBar()->showMessage("Loaded: " + path);
 }
